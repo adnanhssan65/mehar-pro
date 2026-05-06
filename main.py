@@ -10,7 +10,6 @@ import shutil
 import subprocess
 import os
 import sys
-import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
@@ -32,9 +31,9 @@ class UniversalRequest(BaseModel): url: str; folderPath: str; formatType: str; q
 class YTDocRequest(BaseModel): document_text: str; save_path: str; mode: str; quality: str
 
 def scan_media(path_to_scan: str):
-    pass # Disabled for Cloud (No Termux needed)
+    pass # Disabled on Cloud to avoid errors
 
-# PUBLIC CLOUD STORAGE PATH
+# PUBLIC CLOUD STORAGE PATH (Fixed for Render)
 BASE_DIR = Path("./downloads")
 BASE_DIR.mkdir(parents=True, exist_ok=True)
 if not (BASE_DIR / "temp").exists(): (BASE_DIR / "temp").mkdir()
@@ -79,18 +78,17 @@ def home():
             --input-bg: #f1f5f9;
         }
 
-        /* PURE BLACK DARK MODE (Fixed Blue Issue) */
         [data-theme="dark"] {
-            --bg-body: #000000;
-            --bg-panel: #111111;
-            --border-color: #222222;
+            --bg-body: #0f172a;
+            --bg-panel: #1e293b;
+            --border-color: #334155;
             --text-main: #f8fafc;
             --text-muted: #94a3b8;
             --accent-primary: #38bdf8;
             --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
             --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.4);
             --shadow-lg: 0 10px 25px -3px rgba(0,0,0,0.5);
-            --input-bg: #1a1a1a;
+            --input-bg: #0b1120;
         }
 
         @keyframes slideDown { from { opacity: 0; transform: translateY(-15px); } to { opacity: 1; transform: translateY(0); } }
@@ -188,7 +186,13 @@ def home():
         .btn-primary { background: var(--accent-primary); color: white; }
         .btn-secondary { background: var(--input-bg); color: var(--text-main); border: 1px solid var(--border-color); }
         .btn-danger { background: #ef4444; color: white; display: none; width: 100%; margin-top: 15px;}
-        .download-link-btn { display: inline-block; background: #22c55e; color: white; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; margin-top: 10px; text-align: center; width: calc(100% - 40px); }
+        
+        /* New Explicit Download Buttons */
+        .dl-buttons-container { display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap; }
+        .dl-btn { flex: 1; padding: 12px 15px; border-radius: 10px; text-align: center; font-weight: 700; font-size: 12px; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 5px; transition: 0.3s; box-shadow: var(--shadow-sm); }
+        .dl-btn-file { background: #22c55e; color: white; }
+        .dl-btn-zip { background: #f59e0b; color: white; }
+        .dl-btn:hover { filter: brightness(1.1); transform: translateY(-2px); }
 
         /* Status & Toast */
         .status-box { 
@@ -211,6 +215,23 @@ def home():
         .file-upload-wrapper p { margin: 10px 0 0 0; font-size: 12px; color: var(--text-muted); font-weight: 600; }
         
         .footer { text-align: center; color: var(--text-muted); margin-top: 40px; font-size: 11px; font-weight: 500;}
+
+        /* How to Use Modal CSS */
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6); backdrop-filter: blur(5px);
+            z-index: 1000; justify-content: center; align-items: center; opacity: 0; transition: opacity 0.3s;
+        }
+        .modal-content {
+            background: var(--bg-panel); padding: 25px; border-radius: 20px;
+            max-width: 85%; max-height: 80vh; overflow-y: auto; color: var(--text-main);
+            border: 1px solid var(--border-color); box-shadow: 0 20px 50px rgba(0,0,0,0.2);
+            transform: scale(0.95); transition: transform 0.3s; text-align: left;
+        }
+        .modal-content h3 { margin-top: 0; color: var(--accent-primary); font-size: 18px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;}
+        .help-item { margin-bottom: 12px; font-size: 12px; line-height: 1.6; }
+        .help-item b { color: var(--text-main); font-size: 13px;}
+
       </style>
     </head>
     <body>
@@ -416,7 +437,7 @@ def home():
 
           <div id="tool-pdf" class="tool-view">
               <div class="back-nav" onclick="goHome()">🔙 Back to Home</div>
-              <div class="tool-header"><h2>Image to PDF</h2><p>Combine multiple images into one PDF document.</p></div>
+              <div class="tool-header"><h2>Image to PDF</h2><p>Combine images into PDF.</p></div>
               <div class="tool-container">
                   <div class="input-group">
                       <label>Select Images (Order matters)</label>
@@ -456,14 +477,50 @@ def home():
 
       <input type="file" id="fileInput" accept=".txt" style="display:none;" onchange="handleFileSelect(event)">
 
+      <div id="helpModal" class="modal-overlay" onclick="if(event.target==this) closeModal('helpModal')">
+          <div class="modal-content">
+              <h3>📖 How to Use Mehar Pro</h3>
+              <div class="help-item"><b>📱 TikTok Bulk:</b> Paste links line by line. Select quality and click Download. Use Save Mode to get a ZIP or separate files.</div>
+              <div class="help-item"><b>🌍 Universal:</b> Paste any video/audio link (Facebook, Insta, Twitter, etc.) and hit Download.</div>
+              <div class="help-item"><b>✂️ AI Shorts:</b> Paste the document with exact timestamps. The system will cut and merge automatically.</div>
+              <div class="help-item"><b>🎵 MP3 Audio:</b> Select video files from your device to convert them to MP3 audio.</div>
+              <div class="help-item"><b>🖼️ Thumbnails:</b> Paste a YouTube link to get its HD Cover Photo.</div>
+              <div class="help-item"><b>🔄 Img Convert & PDF:</b> Select images to change their format or combine them into a single PDF file.</div>
+              <div class="help-item"><b>📦 ZIP vs File:</b> For single files, they will download directly. For multiple items, the system will create a ZIP folder.</div>
+              <button class="btn btn-primary" onclick="closeModal('helpModal')" style="width: 100%; margin-top: 15px;">Got it, Thanks!</button>
+          </div>
+      </div>
+
       <div class="footer">
-        Mehar Pro Workspace<br>Support: +92 343 6873471
+        Mehar Pro Workspace<br>Support: +92 343 6873471<br><br>
+        <button class="btn btn-secondary" style="border-radius: 20px; padding: 10px 25px; font-size: 12px; font-weight: bold; border: 1px solid var(--border-color);" onclick="openModal('helpModal')">📖 How to Use?</button>
       </div>
 
       <script>
         let results = [];
         let progressInterval = null;
         let activeTargetId = '';
+
+        // Modal Logic
+        function openModal(id) {
+            let m = document.getElementById(id);
+            m.style.display = 'flex';
+            setTimeout(() => m.style.opacity = '1', 10);
+        }
+        function closeModal(id) {
+            let m = document.getElementById(id);
+            m.style.opacity = '0';
+            setTimeout(() => m.style.display = 'none', 300);
+        }
+
+        // Function to Generate explicit Download Buttons
+        function getDownloadButtonsHTML(fileLoc, zipLoc) {
+            let html = `<div class="dl-buttons-container">`;
+            if(fileLoc) html += `<a href="/files/${fileLoc}" class="dl-btn dl-btn-file" download>📥 Download File</a>`;
+            if(zipLoc) html += `<a href="/files/${zipLoc}" class="dl-btn dl-btn-zip" download>📦 Download ZIP</a>`;
+            html += `</div>`;
+            return html;
+        }
 
         // UI Routing
         function goHome() {
@@ -499,10 +556,6 @@ def home():
             let base = document.getElementById('masterPathInput').value.trim();
             if(base.endsWith('/')) base = base.slice(0, -1);
             localStorage.setItem('mehar_base_path', base);
-            document.getElementById('folderPath').value = base + "/TikTok";
-            document.getElementById('uniFolderPath').value = base + "/Universal";
-            document.getElementById('ytFolderPath').value = base + "/YT_Shorts";
-            document.getElementById('convFolder').value = base + "/TikTok";
             showToast("Paths Updated");
         }
         window.onload = () => {
@@ -572,7 +625,7 @@ def home():
             if(match && match[1]) {
                 let imgUrl = `https://img.youtube.com/vi/${match[1]}/maxresdefault.jpg`;
                 resBox.style.display = 'block';
-                resBox.innerHTML = `✅ Found HD Cover:<br><br><img src="${imgUrl}" style="width:100%; border-radius:8px; margin-bottom:10px;"><a href="${imgUrl}" target="_blank" style="color:var(--accent-primary); font-weight:bold; text-decoration:none;">📥 Open Full Image to Save</a>`;
+                resBox.innerHTML = `✅ Found HD Cover:<br><br><img src="${imgUrl}" style="width:100%; border-radius:8px; margin-bottom:10px;"><a href="${imgUrl}" target="_blank" class="dl-btn dl-btn-file" download>📥 Download Image</a>`;
                 showToast("Thumbnail Grabbed"); addHistory("Thumbnail Fetched");
             } else { alert("Please paste a valid YouTube link."); }
         }
@@ -594,8 +647,12 @@ def home():
             try {
                 const res = await fetch('/convert-image-format', { method: 'POST', body: formData });
                 const data = await res.json();
-                statusBox.innerHTML = data.status === "error" ? `❌ Error: ${data.message}` : `<br>✅ Done!<br>${data.location}`;
-                if(data.status==="done") { showToast("Images Converted"); addHistory("Image Format Converted"); }
+                if(data.status === "error") {
+                    statusBox.innerHTML = `❌ Error: ${data.message}`;
+                } else {
+                    statusBox.innerHTML = `✅ Action Completed! <br>` + getDownloadButtonsHTML(data.file_location, data.zip_location);
+                    showToast("Images Converted"); addHistory("Image Format Converted");
+                }
                 fileInput.value = ''; document.getElementById('imgFilesText').innerText = 'Tap to select images';
             } catch(e) { statusBox.innerHTML = `❌ Error: ${e.message}`; }
         }
@@ -616,8 +673,12 @@ def home():
             try {
                 const res = await fetch('/images-to-pdf', { method: 'POST', body: formData });
                 const data = await res.json();
-                statusBox.innerHTML = data.status === "error" ? `❌ Error: ${data.message}` : `<br>✅ Done!<br>${data.location}`;
-                if(data.status==="done") { showToast("PDF Generated"); addHistory("Images merged to PDF"); }
+                if(data.status === "error") {
+                    statusBox.innerHTML = `❌ Error: ${data.message}`;
+                } else {
+                    statusBox.innerHTML = `✅ Action Completed! <br>` + getDownloadButtonsHTML(data.file_location, data.zip_location);
+                    showToast("PDF Generated"); addHistory("Images merged to PDF");
+                }
                 fileInput.value = ''; document.getElementById('pdfFilesText').innerText = 'Tap to select images';
             } catch(e) { statusBox.innerHTML = `❌ Error: ${e.message}`; }
         }
@@ -643,11 +704,15 @@ def home():
           try {
             const res = await fetch('/download', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ selectedUrls: selected, folderPath: 'temp', quality: document.getElementById('quality').value, saveMode: document.getElementById('saveMode').value })
+              body: JSON.stringify({ selectedUrls: selected, folderPath: 'temp_tk', quality: document.getElementById('quality').value, saveMode: document.getElementById('saveMode').value })
             });
             const data = await res.json();
-            if(data.status === "error") document.getElementById('status1').innerHTML = `❌ Error: ${data.error}`;
-            else { document.getElementById('status1').innerHTML = `✅ Complete!<br>${data.location}`; showToast("TikTok Batch Done"); addHistory(`TikTok Batch: ${selected.length} items`); }
+            if(data.status === "error") {
+                document.getElementById('status1').innerHTML = `❌ Error: ${data.error}`;
+            } else { 
+                document.getElementById('status1').innerHTML = `✅ Action Completed! <br>` + getDownloadButtonsHTML(data.file_location, data.zip_location);
+                showToast("TikTok Batch Done"); addHistory(`TikTok Batch: ${selected.length} items`); 
+            }
           } catch(err) { document.getElementById('status1').innerHTML = '❌ Error'; }
         }
 
@@ -659,11 +724,15 @@ def home():
             try {
                 const res = await fetch('/universal-download', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: url, folderPath: 'temp', formatType: document.getElementById('uniType').value, quality: document.getElementById('uniQuality').value })
+                    body: JSON.stringify({ url: url, folderPath: 'temp_uni', formatType: document.getElementById('uniType').value, quality: document.getElementById('uniQuality').value })
                 });
                 const data = await res.json();
-                if(data.status === "error") document.getElementById('status2').innerHTML = `❌ Error: ${data.error}`;
-                else { document.getElementById('status2').innerHTML = `✅ Complete!<br>${data.location}`; showToast("Media Downloaded"); addHistory("Universal Extract"); }
+                if(data.status === "error") {
+                    document.getElementById('status2').innerHTML = `❌ Error: ${data.error}`;
+                } else { 
+                    document.getElementById('status2').innerHTML = `✅ Action Completed! <br>` + getDownloadButtonsHTML(data.file_location, data.zip_location);
+                    showToast("Media Downloaded"); addHistory("Universal Extract"); 
+                }
             } catch(e) { document.getElementById('status2').innerHTML = '❌ Error'; }
         }
 
@@ -675,11 +744,15 @@ def home():
             try {
                 const res = await fetch('/process-yt-document', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ document_text: docText, save_path: 'temp', mode: document.getElementById('ytSaveMode').value, quality: document.getElementById('ytQuality').value })
+                    body: JSON.stringify({ document_text: docText, save_path: 'temp_yt', mode: document.getElementById('ytSaveMode').value, quality: document.getElementById('ytQuality').value })
                 });
                 const data = await res.json();
-                if(data.status === "error") document.getElementById('status3').innerHTML = `❌ Error: ${data.message}`;
-                else { document.getElementById('status3').innerHTML = `✅ Sliced!<br>${data.location}`; showToast("Shorts Extracted"); addHistory("YT Shorts Maker"); }
+                if(data.status === "error") {
+                    document.getElementById('status3').innerHTML = `❌ Error: ${data.message} <br><span style="font-size:10px; color:red;">Cloud servers may restrict YouTube downloading or run out of memory during FFmpeg slicing.</span>`;
+                } else { 
+                    document.getElementById('status3').innerHTML = `✅ Action Completed! <br>` + getDownloadButtonsHTML(data.file_location, data.zip_location);
+                    showToast("Shorts Extracted"); addHistory("YT Shorts Maker"); 
+                }
             } catch(e) { document.getElementById('status3').innerHTML = '❌ Error'; }
         }
 
@@ -696,8 +769,12 @@ def home():
             try {
                 const res = await fetch('/convert-mp3-upload', { method: 'POST', body: formData });
                 const data = await res.json();
-                statusBox.innerHTML = data.status === "error" ? `❌ Error: ${data.message}` : `<br>✅ Done!<br>${data.location}`;
-                if(data.status === "done") { showToast("MP3 Extraction Done"); addHistory("MP3 Files Converted"); }
+                if(data.status === "error") {
+                    statusBox.innerHTML = `❌ Error: ${data.message}`;
+                } else { 
+                    statusBox.innerHTML = `✅ Action Completed! <br>` + getDownloadButtonsHTML(data.file_location, data.zip_location);
+                    showToast("MP3 Extraction Done"); addHistory("MP3 Files Converted"); 
+                }
                 fileInput.value = ''; document.getElementById('selectedFilesText').innerText = 'Tap to select video files';
             } catch(e) { statusBox.innerHTML = `❌ Error`; }
         }
@@ -710,14 +787,14 @@ def home():
     """
 # --- BACKEND LOGIC (Part 2) ---
 
-def get_safe_default_path(subfolder): 
-    return BASE_DIR / subfolder
+def make_cloud_safe(folder_name: str):
+    path = BASE_DIR / folder_name
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
-def make_cloud_safe(folder_path: Path):
-    # کلاؤڈ پر /storage/ والا پاتھ کام نہیں کرتا، یہ فنکشن اسے کلاؤڈ اور ٹرمکس دونوں کے لیے پرفیکٹ بناتا ہے
-    if str(folder_path).startswith("/storage/") and not Path("/storage").exists():
-        return BASE_DIR / folder_path.name
-    return folder_path
+def get_rel_path(full_path):
+    try: return str(Path(full_path).relative_to(BASE_DIR)).replace("\\", "/")
+    except: return Path(full_path).name
 
 @app.post("/scan")
 async def scan(req: ScanRequest):
@@ -751,37 +828,26 @@ def download(req: DownloadRequest):
     global progress_state, cancel_download
     cancel_download = False
     
-    raw_folder = Path(req.folderPath.strip()).resolve() if req.folderPath.strip() else get_safe_default_path("TikTok")
-    folder = make_cloud_safe(raw_folder)
-    folder.mkdir(parents=True, exist_ok=True)
-    
+    folder = make_cloud_safe(f"tiktok_{uuid.uuid4().hex[:6]}")
     progress_state = {"is_active": True, "total": len(req.selectedUrls), "completed": 0, "status": "Starting..."}
     try:
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            futures_map = {executor.submit(download_single_video, url, folder, req.quality, f"Mehar_Vid_{uuid.uuid4().hex[:6]}_{i:02d}"): url for i, url in enumerate(req.selectedUrls, 1)}
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures_map = {executor.submit(download_single_video, url, folder, req.quality, f"Vid_{i:02d}"): url for i, url in enumerate(req.selectedUrls, 1)}
             for future in as_completed(futures_map):
                 if cancel_download: return JSONResponse({"status": "stopped"})
                 progress_state["completed"] += 1
                 progress_state["status"] = f"Downloading... ({progress_state['completed']}/{progress_state['total']})"
         
-        final_location = str(folder)
-        if req.saveMode == "zip" and not cancel_download:
-            zip_path = str(folder.parent / folder.name)
-            shutil.make_archive(zip_path, 'zip', str(folder))
-            final_location = f"{zip_path}.zip"
-        else:
-            # اگر سنگل فائل ہو تو اسے ڈائریکٹ ڈاؤنلوڈ لنک کے لیے پکڑنا
-            files = list(folder.glob("Mehar_Vid_*.*"))
-            if len(files) == 1:
-                final_location = str(files[0])
-                
-        scan_media(final_location) 
+        zip_path = str(folder)
+        shutil.make_archive(zip_path, 'zip', str(folder))
+        zip_url = get_rel_path(f"{zip_path}.zip")
+        
+        file_url = None
+        files = list(folder.glob("*.*"))
+        if len(files) == 1: file_url = get_rel_path(files[0])
+            
         progress_state["is_active"] = False
-        
-        try: rel_loc = str(Path(final_location).relative_to(BASE_DIR)).replace("\\", "/")
-        except: rel_loc = Path(final_location).name
-        
-        return JSONResponse({"status": "done", "location": rel_loc})
+        return JSONResponse({"status": "done", "file_location": file_url, "zip_location": zip_url})
     except Exception as e:
         progress_state["is_active"] = False
         return JSONResponse({"status": "error", "error": str(e)}, status_code=500)
@@ -791,18 +857,13 @@ def universal_download(req: UniversalRequest):
     global progress_state, cancel_download
     cancel_download = False
     
-    raw_folder = Path(req.folderPath.strip()).resolve() if req.folderPath.strip() else get_safe_default_path("Universal")
-    folder = make_cloud_safe(raw_folder)
-    folder.mkdir(parents=True, exist_ok=True)
-    
+    folder = make_cloud_safe(f"uni_{uuid.uuid4().hex[:6]}")
     progress_state = {"is_active": True, "total": 1, "completed": 0, "status": "Grabbing Media..."}
-    ydl_opts = {'outtmpl': str(folder / 'Universal_%(title)s.%(ext)s'), 'quiet': True, 'no_warnings': True, 'progress_hooks': [my_hook]}
+    
+    ydl_opts = {'outtmpl': str(folder / 'Media_%(title)s.%(ext)s'), 'quiet': True, 'no_warnings': True, 'progress_hooks': [my_hook]}
     if req.formatType == "audio":
         ydl_opts['format'] = 'bestaudio/best'
         ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}]
-    elif req.formatType == "images":
-        ydl_opts['outtmpl'] = str(folder / 'Mehar_Image_%(autonumber)s.%(ext)s')
-        ydl_opts['format'] = 'best' 
     else:
         ydl_opts['merge_output_format'] = 'mp4'
         ydl_opts['format'] = 'worst[ext=mp4]/worst' if req.quality == "worst" else 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
@@ -813,13 +874,15 @@ def universal_download(req: UniversalRequest):
             filename = ydl.prepare_filename(info)
             if req.formatType == "audio": filename = filename.rsplit('.', 1)[0] + '.mp3'
             
-        scan_media(str(folder)) 
+        zip_path = str(folder)
+        shutil.make_archive(zip_path, 'zip', str(folder))
+        
         progress_state["is_active"] = False
-        
-        try: rel_loc = str(Path(filename).relative_to(BASE_DIR)).replace("\\", "/")
-        except: rel_loc = Path(filename).name
-        
-        return JSONResponse({"status": "done", "location": rel_loc})
+        return JSONResponse({
+            "status": "done", 
+            "file_location": get_rel_path(filename), 
+            "zip_location": get_rel_path(f"{zip_path}.zip")
+        })
     except Exception as e:
         progress_state["is_active"] = False
         return JSONResponse({"status": "error", "error": str(e)}, status_code=500)
@@ -836,20 +899,17 @@ def process_yt_document(req: YTDocRequest):
     cancel_download = False
     text = req.document_text
     url_match = re.search(r'https?://(?:www\.)?youtube\.com/watch\?v=[\w-]+|https?://youtu\.be/[\w-]+', text)
-    if not url_match: return JSONResponse({"status": "error", "message": "YouTube URL missing!"})
+    if not url_match: return JSONResponse({"status": "error", "message": "YouTube URL missing in text!"})
     yt_url = url_match.group(0)
 
-    raw_folder = Path(req.save_path.strip()).resolve() if req.save_path.strip() else get_safe_default_path("YT_Shorts")
-    folder_path = make_cloud_safe(raw_folder)
-    folder_path.mkdir(parents=True, exist_ok=True)
+    folder_path = make_cloud_safe(f"shorts_{uuid.uuid4().hex[:6]}")
     temp_folder = folder_path / "Temp_Process"
     temp_folder.mkdir(exist_ok=True)
     
-    progress_state = {"is_active": True, "total": 100, "completed": 0, "status": "Parsing..."}
+    progress_state = {"is_active": True, "total": 100, "completed": 0, "status": "Parsing Timestamps..."}
 
     main_clips_text = re.split(r'(?:\.|\-){20,}', text)
     final_clips_data = []
-
     for main_clip in main_clips_text:
         sub_clips_text = re.split(r'(?:\.|\-){3,19}|\(?add\)?', main_clip, flags=re.IGNORECASE)
         curr_segs = []
@@ -885,7 +945,7 @@ def process_yt_document(req: YTDocRequest):
         if len(part_files) > 0:
             total_extracted += 1
             progress_state["status"] = f"Merging Clip {i}..."
-            final_output = folder_path / f"Mehar_Viral_{uuid.uuid4().hex[:4]}_{i:02d}.mp4"
+            final_output = folder_path / f"Viral_Short_{i:02d}.mp4"
             if len(part_files) == 1: shutil.move(str(part_files[0]), str(final_output))
             elif len(part_files) > 1:
                 list_txt = temp_folder / f"list_{i}.txt"
@@ -899,85 +959,53 @@ def process_yt_document(req: YTDocRequest):
 
     if total_extracted == 0:
         progress_state["is_active"] = False
-        return JSONResponse({"status": "error", "message": "Extraction Failed."})
+        return JSONResponse({"status": "error", "message": "FFmpeg Failed on Server."})
 
-    final_loc = str(folder_path)
-    if req.mode == "zip" and not cancel_download:
-        zip_path = str(folder_path.parent / folder_path.name)
-        shutil.make_archive(zip_path, 'zip', str(folder_path))
-        final_loc = f"{zip_path}.zip"
-    else:
-        files = list(folder_path.glob("Mehar_Viral_*.mp4"))
-        if len(files) == 1: final_loc = str(files[0])
+    zip_path = str(folder_path)
+    shutil.make_archive(zip_path, 'zip', str(folder_path))
+    
+    file_url = None
+    files = list(folder_path.glob("Viral_Short_*.mp4"))
+    if len(files) == 1: file_url = get_rel_path(files[0])
         
-    scan_media(final_loc) 
     progress_state["is_active"] = False
-    
-    try: rel_loc = str(Path(final_loc).relative_to(BASE_DIR)).replace("\\", "/")
-    except: rel_loc = Path(final_loc).name
-    
-    return JSONResponse({"status": "done", "location": rel_loc})
+    return JSONResponse({
+        "status": "done", 
+        "file_location": file_url, 
+        "zip_location": get_rel_path(f"{zip_path}.zip")
+    })
 
 @app.post("/convert-mp3-upload")
 async def convert_mp3_upload(files: List[UploadFile] = File(...)):
-    mp3_dir = BASE_DIR / "MP3_Converted"
-    mp3_dir.mkdir(parents=True, exist_ok=True)
-    temp_dir = mp3_dir / "temp_uploads"
-    temp_dir.mkdir(exist_ok=True)
+    folder = make_cloud_safe(f"mp3_{uuid.uuid4().hex[:6]}")
     converted = 0
     last_file = None
     try:
         for file in files:
-            temp_file = temp_dir / file.filename
+            temp_file = folder / file.filename
             with open(temp_file, "wb") as buffer: shutil.copyfileobj(file.file, buffer)
-            out_file = mp3_dir / f"{temp_file.stem}_Mehar.mp3"
+            out_file = folder / f"{temp_file.stem}_Mehar.mp3"
             subprocess.run(['ffmpeg', '-y', '-i', str(temp_file), '-q:a', '0', '-map', 'a', str(out_file)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            scan_media(str(out_file))
+            if temp_file.exists(): temp_file.unlink()
             last_file = out_file
             converted += 1
+            
+        zip_path = str(folder)
+        shutil.make_archive(zip_path, 'zip', str(folder))
+        
+        file_url = get_rel_path(last_file) if converted == 1 else None
+        return JSONResponse({
+            "status": "done", 
+            "file_location": file_url, 
+            "zip_location": get_rel_path(f"{zip_path}.zip")
+        })
     except Exception as e:
-        shutil.rmtree(temp_dir, ignore_errors=True)
         return JSONResponse({"status": "error", "message": str(e)})
 
-    shutil.rmtree(temp_dir, ignore_errors=True)
-    
-    if converted == 1 and last_file:
-        try: rel_loc = str(last_file.relative_to(BASE_DIR)).replace("\\", "/")
-        except: rel_loc = last_file.name
-        return JSONResponse({"status": "done", "location": rel_loc})
-    else:
-        zip_path = str(mp3_dir)
-        shutil.make_archive(zip_path, 'zip', str(mp3_dir))
-        try: rel_loc = str(Path(f"{zip_path}.zip").relative_to(BASE_DIR)).replace("\\", "/")
-        except: rel_loc = f"{mp3_dir.name}.zip"
-        return JSONResponse({"status": "done", "location": rel_loc})
-
-@app.post("/convert-mp3-folder")
-def convert_mp3_folder(req: dict):
-    raw_folder = req.get("folderPath", "").strip()
-    if not raw_folder: return JSONResponse({"status": "error", "message": "Folder path is empty!"})
-    
-    folder = make_cloud_safe(Path(raw_folder).resolve())
-    if not folder.exists() or not folder.is_dir(): return JSONResponse({"status": "error", "message": "Folder not found!"})
-    
-    mp3_folder = BASE_DIR / "MP3_Bulk_Converted"
-    mp3_folder.mkdir(parents=True, exist_ok=True)
-    converted = 0
-    for file in folder.iterdir():
-        if file.is_file() and file.suffix.lower() in ['.mp4', '.webm', '.mov', '.mkv', '.m4a']:
-            out_file = mp3_folder / f"{file.stem}_Mehar.mp3"
-            subprocess.run(['ffmpeg', '-y', '-i', str(file), '-q:a', '0', '-map', 'a', str(out_file)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            converted += 1
-            
-    scan_media(str(mp3_folder)) 
-    return JSONResponse({"status": "done", "message": f"Converted {converted} files.<br>Saved in: {mp3_folder}"})
-
-# --- IMAGE TOOLS ---
 @app.post("/convert-image-format")
 async def convert_image_format(files: List[UploadFile] = File(...), target_format: str = Form(...)):
-    if 'PIL' not in sys.modules: return JSONResponse({"status": "error", "message": "Pillow not installed. Run: pip install Pillow"})
-    out_dir = BASE_DIR / "Image_Conversions"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if 'PIL' not in sys.modules: return JSONResponse({"status": "error", "message": "Pillow not installed."})
+    folder = make_cloud_safe(f"img_{uuid.uuid4().hex[:6]}")
     converted = 0
     last_file = None
     ext = target_format.lower()
@@ -987,30 +1015,27 @@ async def convert_image_format(files: List[UploadFile] = File(...), target_forma
         try:
             img = Image.open(file.file)
             if target_format in ['JPEG', 'JPG'] and img.mode in ("RGBA", "P"): img = img.convert("RGB")
-            out_file = out_dir / f"{Path(file.filename).stem}_Mehar.{ext}"
+            out_file = folder / f"{Path(file.filename).stem}_Mehar.{ext}"
             img.save(str(out_file), format=target_format)
-            scan_media(str(out_file))
             last_file = out_file
             converted += 1
         except Exception as e: pass
         
-    if converted == 1 and last_file:
-        try: rel_loc = str(last_file.relative_to(BASE_DIR)).replace("\\", "/")
-        except: rel_loc = last_file.name
-        return JSONResponse({"status": "done", "location": rel_loc})
-    else:
-        zip_path = str(out_dir)
-        shutil.make_archive(zip_path, 'zip', str(out_dir))
-        try: rel_loc = str(Path(f"{zip_path}.zip").relative_to(BASE_DIR)).replace("\\", "/")
-        except: rel_loc = f"{out_dir.name}.zip"
-        return JSONResponse({"status": "done", "location": rel_loc})
+    zip_path = str(folder)
+    shutil.make_archive(zip_path, 'zip', str(folder))
+    
+    file_url = get_rel_path(last_file) if converted == 1 else None
+    return JSONResponse({
+        "status": "done", 
+        "file_location": file_url, 
+        "zip_location": get_rel_path(f"{zip_path}.zip")
+    })
 
 @app.post("/images-to-pdf")
 async def images_to_pdf(files: List[UploadFile] = File(...)):
-    if 'PIL' not in sys.modules: return JSONResponse({"status": "error", "message": "Pillow not installed. Run: pip install Pillow"})
+    if 'PIL' not in sys.modules: return JSONResponse({"status": "error", "message": "Pillow not installed."})
     if not files: return JSONResponse({"status": "error", "message": "No images provided."})
-    out_dir = BASE_DIR / "PDF_Documents"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    folder = make_cloud_safe(f"pdf_{uuid.uuid4().hex[:6]}")
     
     img_list = []
     try:
@@ -1019,12 +1044,13 @@ async def images_to_pdf(files: List[UploadFile] = File(...)):
             img = Image.open(file.file).convert('RGB')
             img_list.append(img)
             
-        out_file = out_dir / f"Mehar_Doc_{len(list(out_dir.glob('*.pdf')))+1}.pdf"
+        out_file = folder / "Document_MeharPro.pdf"
         first_img.save(str(out_file), save_all=True, append_images=img_list)
-        scan_media(str(out_file))
         
-        try: rel_loc = str(out_file.relative_to(BASE_DIR)).replace("\\", "/")
-        except: rel_loc = out_file.name
-        return JSONResponse({"status": "done", "location": rel_loc})
+        return JSONResponse({
+            "status": "done", 
+            "file_location": get_rel_path(out_file), 
+            "zip_location": None 
+        })
     except Exception as e:
         return JSONResponse({"status": "error", "message": str(e)})
