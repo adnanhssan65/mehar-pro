@@ -1,5 +1,5 @@
-from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi import FastAPI, UploadFile, File, Form
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional
@@ -11,19 +11,18 @@ import subprocess
 import os
 import sys
 import uuid
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
 try:
     from PIL import Image
 except ImportError:
-    pass
+    pass # Managed by pip install Pillow
 
 app = FastAPI()
 
 # Global states
-progress_state = {} # Use dict for multi-user support in public version
+progress_state = {}
 cancel_tasks = set()
 
 class ScanRequest(BaseModel): urls: List[str]; count: int = 5000
@@ -31,12 +30,15 @@ class DownloadRequest(BaseModel): selectedUrls: List[str]; quality: str; saveMod
 class UniversalRequest(BaseModel): url: str; formatType: str; quality: str; task_id: str
 class YTDocRequest(BaseModel): document_text: str; mode: str; quality: str; task_id: str
 
-# PUBLIC PATHS (Server Based)
+# PUBLIC PATHS (Server Based - For Render Cloud)
 BASE_DIR = Path("./downloads")
 BASE_DIR.mkdir(parents=True, exist_ok=True)
 if not (BASE_DIR / "temp").exists(): (BASE_DIR / "temp").mkdir()
 
 app.mount("/files", StaticFiles(directory=str(BASE_DIR)), name="files")
+
+@app.get("/health")
+def health(): return {"ok": True, "server": "running"}
 
 @app.get("/progress/{task_id}")
 def get_progress(task_id: str):
@@ -51,232 +53,540 @@ def stop_task(task_id: str):
 def home():
     return """
     <!doctype html>
-    <html lang="en" data-theme="dark">
+    <html lang="en" data-theme="light">
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
-      <title>Mehar Pro - Public Workspace</title>
+      <title>Mehar Pro Downloader</title>
       <style>
+        /* Sleek Premium Theme Variables */
         :root {
-            --bg-body: #0f172a; --bg-panel: #1e293b; --border-color: #334155;
-            --text-main: #f8fafc; --text-muted: #94a3b8; --accent: #38bdf8;
-            --input-bg: #0b1120; --shadow: 0 10px 25px -3px rgba(0,0,0,0.5);
+            --bg-gradient: linear-gradient(135deg, #f0f4f8, #d9e2ec);
+            --glass-bg: rgba(255, 255, 255, 0.9);
+            --glass-border: rgba(255, 255, 255, 1);
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --input-bg: #ffffff;
+            --box-shadow: 0 8px 30px rgba(0, 0, 0, 0.04);
+            --accent-color: #0ea5e9;
+            --btn-gradient: linear-gradient(135deg, #0ea5e9, #2563eb);
+            --status-bg: #f8fafc;
+            --gold: #d4af37;
         }
-        [data-theme="light"] {
-            --bg-body: #f8fafc; --bg-panel: #ffffff; --border-color: #e2e8f0;
-            --text-main: #0f172a; --text-muted: #64748b; --accent: #3b82f6;
-            --input-bg: #f1f5f9; --shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+
+        /* Pure Black Dark Theme */
+        [data-theme="dark"] {
+            --bg-gradient: linear-gradient(135deg, #000000, #111111);
+            --glass-bg: rgba(20, 20, 20, 0.85);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --text-main: #f0f0f0;
+            --text-muted: #aaaaaa;
+            --input-bg: rgba(10, 10, 10, 0.8);
+            --box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+            --accent-color: #00f3ff;
+            --btn-gradient: linear-gradient(135deg, #00c6ff, #0072ff);
+            --status-bg: rgba(15, 15, 15, 0.9);
         }
-        body { margin: 0; font-family: 'Inter', sans-serif; background: var(--bg-body); color: var(--text-main); padding: 20px; transition: 0.3s; padding-bottom: 60px; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; padding-bottom: 15px; border-bottom: 1px solid var(--border-color); }
-        .header h1 { margin: 0; font-size: 24px; font-weight: 900; }
-        .theme-btn { background: var(--bg-panel); border: 1px solid var(--border-color); color: var(--text-main); width: 40px; height: 40px; border-radius: 12px; cursor: pointer; }
-        
-        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 15px; }
-        .tool-card { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 16px; padding: 20px 10px; text-align: center; cursor: pointer; transition: 0.3s; box-shadow: var(--shadow); display: flex; flex-direction: column; align-items: center; gap: 8px; }
-        .tool-card:hover { transform: translateY(-4px); border-color: var(--accent); }
-        .tool-icon { font-size: 30px; }
-        .tool-title { font-size: 13px; font-weight: 700; }
 
-        .tool-view { display: none; animation: fadeIn 0.3s ease; }
-        .tool-view.active { display: block; }
-        .back-nav { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: var(--accent); cursor: pointer; margin-bottom: 20px; background: var(--bg-panel); padding: 10px 15px; border-radius: 12px; border: 1px solid var(--border-color); }
-        .tool-container { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 20px; padding: 20px; box-shadow: var(--shadow); }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-15px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
         
-        textarea, input[type="text"], select { width: 100%; border-radius: 12px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-main); padding: 12px; box-sizing: border-box; font-size: 13px; margin-bottom: 15px; font-weight: 500; }
-        label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 5px; }
+        body { 
+            margin: 0; font-family: 'Inter', 'Segoe UI', sans-serif; 
+            background: var(--bg-gradient); background-attachment: fixed; 
+            color: var(--text-main); padding: 15px; transition: background 0.4s ease;
+        }
         
-        .btn-group { display: flex; flex-wrap: wrap; gap: 10px; }
-        button.btn { flex: 1; min-width: 120px; border: none; padding: 14px; border-radius: 12px; cursor: pointer; font-weight: 700; font-size: 12px; transition: 0.2s; }
-        .btn-primary { background: var(--accent); color: white; }
-        .btn-secondary { background: var(--input-bg); color: var(--text-main); border: 1px solid var(--border-color); }
-        .btn-danger { background: #ef4444; color: white; display: none; width: 100%; margin-top: 10px; }
+        /* Minimalist Header */
+        .header { 
+            display: flex; justify-content: space-between; align-items: center; 
+            background: var(--glass-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border); border-radius: 16px; padding: 16px 20px; 
+            margin-bottom: 25px; box-shadow: var(--box-shadow); animation: slideDown 0.5s ease-out;
+        }
+        .header-title-container { display: flex; flex-direction: column; }
+        .header h2 { margin: 0; font-size: 24px; font-weight: 900; color: var(--text-main); letter-spacing: -0.5px; }
+        .header-subtitle { font-size: 10px; color: var(--gold); margin-top: 0px; letter-spacing: 2px; text-transform: uppercase; font-weight: 700; }
+        
+        .header-actions { display: flex; gap: 12px; align-items: center; }
+        .owner-tag { 
+            font-size: 10px; font-weight: 700; background: linear-gradient(135deg, #111, #333); 
+            color: var(--gold); padding: 6px 12px; border-radius: 20px; 
+            border: 1px solid var(--glass-border);
+        }
+        .gear-btn { 
+            background: var(--input-bg); border: 1px solid var(--glass-border); color: var(--accent-color);
+            width: 36px; height: 36px; border-radius: 50%; display: flex; justify-content: center; align-items: center;
+            font-size: 18px; cursor: pointer; box-shadow: var(--box-shadow); transition: all 0.3s;
+        }
+        .gear-btn:hover { transform: rotate(45deg); filter: brightness(1.2); }
 
-        .status-box { background: var(--input-bg); padding: 15px; border-radius: 12px; margin-top: 20px; border-left: 4px solid var(--accent); font-size: 12px; word-wrap: break-word; }
-        .download-link { display: inline-block; margin-top: 10px; padding: 10px 20px; background: #22c55e; color: white; border-radius: 8px; text-decoration: none; font-weight: 800; }
+        /* Sleek Tabs */
+        .tabs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 25px; }
+        .tab-btn { 
+            background: var(--glass-bg); border: 1px solid var(--glass-border); 
+            color: var(--text-muted); padding: 10px 16px; border-radius: 12px; cursor: pointer; 
+            font-weight: 600; transition: all 0.3s; flex: 1; min-width: 100px; text-align: center; font-size: 13px;
+        }
+        .tab-btn:hover { color: var(--text-main); background: rgba(255,255,255,0.2); }
+        .tab-btn.active { 
+            background: linear-gradient(135deg, #111, #222); color: var(--gold);
+            border-color: #111; box-shadow: var(--box-shadow); font-weight: 700;
+        }
+        [data-theme="dark"] .tab-btn.active { background: linear-gradient(135deg, #333, #555); color: #fff; border-color: #555;}
         
-        .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%) translateY(-100px); background: var(--text-main); color: var(--bg-body); padding: 12px 24px; border-radius: 30px; font-size: 12px; font-weight: 700; z-index: 9999; transition: 0.4s; }
-        .toast.show { transform: translateX(-50%) translateY(0); }
-        .file-wrapper { border: 2px dashed var(--border-color); border-radius: 16px; padding: 25px; text-align: center; cursor: pointer; background: var(--input-bg); margin-bottom: 15px; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        /* Glass Content Containers */
+        .tab-content { 
+            display: none; background: var(--glass-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border); border-radius: 20px; padding: 25px; 
+            box-shadow: var(--box-shadow); animation: fadeIn 0.4s ease-out; 
+        }
+        .tab-content.active { display: block; }
+        
+        .tab-content h3 { color: var(--text-main); margin-top:0; margin-bottom: 4px; font-size: 18px; font-weight: 700;}
+        .tab-subtitle { font-size: 11px; color: var(--text-muted); font-weight: 500; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--glass-border);}
+
+        /* Form Elements */
+        textarea { 
+            width: 100%; min-height: 100px; border-radius: 12px; border: 1px solid var(--glass-border); 
+            background: var(--input-bg); color: var(--text-main); padding: 16px; box-sizing: border-box; margin: 10px 0; 
+            font-family: monospace; font-size: 12px; transition: all 0.3s; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
+        }
+        textarea:focus, input:focus, select:focus { border-color: var(--accent-color); outline: none; }
+        
+        .controls { display: flex; gap: 10px; margin-bottom: 15px; flex-direction: column; }
+        .path-container { display: flex; width: 100%; }
+        .path-container input { 
+            flex: 1; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--glass-border); 
+            background: var(--input-bg); color: var(--text-main); min-width: 0; font-weight: 500; font-size: 13px;
+        }
+        select { 
+            width: 100%; padding: 14px 16px; border-radius: 12px; background: var(--input-bg); 
+            color: var(--text-main); border: 1px solid var(--glass-border); cursor: pointer; font-weight: 600; font-size: 13px;
+        }
+        
+        /* Status Box */
+        .status-box { 
+            background: var(--status-bg); padding: 16px; border-radius: 12px; margin: 20px 0 15px 0; 
+            border-left: 4px solid var(--accent-color); word-wrap: break-word; font-size: 13px;
+        }
+        .live-progress { color: var(--accent-color); font-weight: 700; margin-top: 6px; font-size: 13px; }
+
+        /* Buttons */
+        .action-btns { display: flex; flex-wrap: wrap; gap: 10px; }
+        button.action { 
+            flex: 1; min-width: 130px; border: 0; padding: 14px; border-radius: 12px; cursor: pointer; color: white; 
+            font-weight: 700; transition: all 0.2s; text-transform: uppercase; font-size: 11px; letter-spacing: 1px;
+        }
+        button.action:hover { transform: translateY(-2px); filter: brightness(1.1); box-shadow: 0 6px 15px rgba(0,0,0,0.1); }
+        
+        .btn-scan { background: #475569; }
+        .btn-import { background: linear-gradient(135deg, var(--gold), #b8860b); color: #fff; }
+        .btn-clear { background: #94a3b8; }
+        .btn-download { background: var(--btn-gradient); }
+        .btn-yt { background: #f43f5e; }
+        .btn-stop { background: #ef4444; display: none; width: 100%; margin-bottom: 15px; font-size: 12px;}
+        
+        /* Download Link Style */
+        .download-link { display: inline-block; margin-top: 10px; padding: 10px 20px; background: #22c55e; color: white; border-radius: 8px; text-decoration: none; font-weight: 800; text-align:center; width:calc(100% - 40px); }
+        .download-link:hover { background: #16a34a; }
+
+        /* Help Modal */
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6); backdrop-filter: blur(5px);
+            z-index: 1000; justify-content: center; align-items: center; opacity: 0; transition: opacity 0.3s;
+        }
+        .modal-content {
+            background: var(--glass-bg); padding: 25px; border-radius: 20px;
+            max-width: 85%; max-height: 80vh; overflow-y: auto; color: var(--text-main);
+            border: 1px solid var(--glass-border); box-shadow: 0 20px 50px rgba(0,0,0,0.2);
+            transform: scale(0.95); transition: transform 0.3s;
+        }
+        .modal-content h3 { margin-top: 0; color: var(--accent-color); font-size: 18px;}
+        
+        /* Settings Toggle */
+        .setting-item { display: flex; justify-content: space-between; align-items: center; margin: 15px 0; font-size: 13px;}
+        .switch { position: relative; display: inline-block; width: 40px; height: 20px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #94a3b8; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: var(--accent-color); }
+        input:checked + .slider:before { transform: translateX(20px); }
+
+        .footer { text-align: center; color: var(--text-muted); margin-top: 30px; font-size: 11px; font-weight: 500;}
+        .history-item { background: var(--input-bg); padding: 10px; border-radius: 8px; margin-bottom: 8px; font-size: 11px; border-left: 3px solid var(--accent-color); color: var(--text-main);}
       </style>
     </head>
     <body>
-      <div id="toast" class="toast">Action Completed!</div>
+
       <div class="header">
-        <div><h1>Mehar Pro.</h1><span style="font-size:10px; color:var(--text-muted); font-weight:700; letter-spacing:1px;">PUBLIC SAAS</span></div>
-        <button class="theme-btn" onclick="toggleTheme()">🌓</button>
+        <div class="header-title-container">
+            <h2>Mehar Pro</h2>
+            <span class="header-subtitle">DOWNLOADER</span>
+        </div>
+        <div class="header-actions">
+            <span class="owner-tag">Owner: Adnan</span>
+            <button class="gear-btn" onclick="openModal('settingsModal')" title="Settings">⚙️</button>
+        </div>
       </div>
 
-      <div id="view-dashboard" class="dashboard-grid">
-        <div class="tool-card" onclick="showTool('tool-tiktok')"><div class="tool-icon">📱</div><div class="tool-title">TikTok Bulk</div></div>
-        <div class="tool-card" onclick="showTool('tool-yt')"><div class="tool-icon">✂️</div><div class="tool-title">AI Shorts</div></div>
-        <div class="tool-card" onclick="showTool('tool-universal')"><div class="tool-icon">🌍</div><div class="tool-title">Universal</div></div>
-        <div class="tool-card" onclick="showTool('tool-mp3')"><div class="tool-icon">🎵</div><div class="tool-title">MP3 Audio</div></div>
-        <div class="tool-card" onclick="showTool('tool-thumbnail')"><div class="tool-icon">🖼️</div><div class="tool-title">Thumbnails</div></div>
-        <div class="tool-card" onclick="showTool('tool-img-convert')"><div class="tool-icon">🔄</div><div class="tool-title">Img Convert</div></div>
-        <div class="tool-card" onclick="showTool('tool-pdf')"><div class="tool-icon">📄</div><div class="tool-title">Img to PDF</div></div>
+      <div class="tabs">
+        <button class="tab-btn active" onclick="openTab(event, 'tab-tiktok')">📱 TikTok</button>
+        <button class="tab-btn" onclick="openTab(event, 'tab-universal')">🌍 Universal</button>
+        <button class="tab-btn" onclick="openTab(event, 'tab-yt')">✂️ YouTube AI</button>
+        <button class="tab-btn" onclick="openTab(event, 'tab-mp3')">🎵 MP3</button>
+        <button class="tab-btn" onclick="openTab(event, 'tab-thumbnail')">🖼️ Thumbnails</button>
+        <button class="tab-btn" onclick="openTab(event, 'tab-img-convert')">🔄 Img Convert</button>
+        <button class="tab-btn" onclick="openTab(event, 'tab-pdf')">📄 Img to PDF</button>
+        <button class="tab-btn" onclick="openTab(event, 'tab-history')">🕒 History</button>
       </div>
 
-      <div id="tools-container">
-        <div id="tool-tiktok" class="tool-view">
-          <div class="back-nav" onclick="goHome()">🔙 Back Home</div>
-          <div class="tool-container">
-            <h3>TikTok Bulk Downloader</h3>
-            <textarea id="urls" placeholder="Paste links line by line..."></textarea>
-            <label>Quality</label>
-            <select id="quality"><option value="worst">Fast (Low)</option><option value="best" selected>Original (HD)</option><option value="audio_only">MP3 Audio</option></select>
-            <button class="btn btn-primary" id="btn-tiktok" onclick="runTikTok()">🚀 Start Download</button>
-            <button class="btn btn-danger" id="stop-tiktok" onclick="stopTask()">🛑 Stop</button>
-            <div class="status-box" id="stat-tiktok">Ready.</div>
-          </div>
+      <div id="tab-tiktok" class="tab-content active">
+        <h3>TikTok Batch Downloader</h3>
+        <div class="tab-subtitle">Cloud Extraction Engine</div>
+        <textarea id="urls" placeholder="Paste URLs here or Import TXT..."></textarea>
+        <div class="controls">
+          <select id="quality"><option value="worst">Fast (Lowest MP4)</option><option value="best" selected>Original (Best MP4)</option><option value="audio_only">🎵 Audio (MP3)</option></select>
+          <select id="saveMode"><option value="zip">Save: Single ZIP (Recommended)</option></select>
         </div>
+        <div class="status-box"><div id="status1">Ready.</div><div id="prog1" class="live-progress"></div></div>
+        <button class="action btn-stop" id="stopBtn1" onclick="stopDownload()">🛑 Force Stop</button>
+        <div class="action-btns">
+          <button class="action btn-scan" onclick="scan()">🔍 Scan</button>
+          <button class="action btn-import" onclick="triggerFileImport('urls')">📁 Import TXT</button>
+          <button class="action btn-clear" onclick="clearUrls()">🗑️ Clear</button>
+          <button class="action btn-download" id="downloadBtn" onclick="download('video')">🚀 Download</button>
+        </div>
+        <div id="grid" style="margin-top:15px; display:grid; gap:8px;"></div>
+      </div>
 
-        <div id="tool-yt" class="tool-view">
-          <div class="back-nav" onclick="goHome()">🔙 Back Home</div>
-          <div class="tool-container">
-            <h3>YouTube AI Shorts</h3>
-            <textarea id="ytDoc" placeholder="Paste script with timestamps..."></textarea>
-            <label>Quality</label>
-            <select id="ytQual"><option value="720p">720p</option><option value="1080p" selected>1080p</option></select>
-            <button class="btn btn-primary" id="btn-yt" onclick="runYT()">✂️ Extract & Merge</button>
-            <button class="btn btn-danger" id="stop-yt" onclick="stopTask()">🛑 Stop</button>
-            <div class="status-box" id="stat-yt">Ready.</div>
-          </div>
+      <div id="tab-universal" class="tab-content">
+        <h3>Universal Downloader</h3>
+        <div class="tab-subtitle">Any Platform Video/Audio Extractor</div>
+        <div class="controls"><input type="text" id="uniUrl" placeholder="Paste single link here..."></div>
+        <div class="controls">
+          <select id="uniType"><option value="video">🎥 Video Download</option><option value="audio">🎵 Audio (MP3)</option></select>
+          <select id="uniQuality"><option value="best">Highest Quality</option><option value="worst">Low Quality / Fast</option></select>
         </div>
+        <div class="status-box"><div id="status2">Ready.</div><div id="prog2" class="live-progress"></div></div>
+        <button class="action btn-stop" id="stopBtn2" onclick="stopDownload()">🛑 Force Stop</button>
+        <button class="action btn-download" id="uniBtn" onclick="startUniversal()" style="width: 100%;">🚀 Download Now</button>
+      </div>
 
-        <div id="tool-universal" class="tool-view">
-          <div class="back-nav" onclick="goHome()">🔙 Back Home</div>
-          <div class="tool-container">
-            <h3>Universal Downloader</h3>
-            <input type="text" id="uniUrl" placeholder="https://...">
-            <label>Type</label>
-            <select id="uniType"><option value="video">Video</option><option value="audio">Audio (MP3)</option></select>
-            <button class="btn btn-primary" id="btn-uni" onclick="runUni()">🚀 Download</button>
-            <div class="status-box" id="stat-uni">Ready.</div>
-          </div>
+      <div id="tab-yt" class="tab-content">
+        <h3 style="color: #ff416c;">YouTube AI Shorts</h3>
+        <div class="tab-subtitle">Exact Frame-Accurate Slicing & Auto-Merge</div>
+        <textarea id="ytDoc" placeholder="Paste AI Document text with exact timestamps here..."></textarea>
+        <div class="controls">
+          <select id="ytQuality"><option value="720p">📺 HD 720p</option><option value="1080p" selected>🌟 Full HD 1080p</option></select>
         </div>
+        <div class="status-box"><div id="status3">Ready.</div><div id="prog3" class="live-progress"></div></div>
+        <button class="action btn-stop" id="stopBtn3" onclick="stopDownload()">🛑 Force Stop</button>
+        <div class="action-btns">
+            <button class="action btn-import" onclick="triggerFileImport('ytDoc')">📁 Import Doc</button>
+            <button class="action btn-yt" id="ytBtn" onclick="startYtShorts()">🚀 Fast Extract</button>
+        </div>
+      </div>
 
-        <div id="tool-mp3" class="tool-view">
-          <div class="back-nav" onclick="goHome()">🔙 Back Home</div>
-          <div class="tool-container">
-            <h3>MP3 Converter</h3>
-            <input type="file" id="mp3Files" multiple accept="video/*" style="display:none;" onchange="updateFileText('mp3Files','mp3Text')">
-            <div class="file-wrapper" onclick="document.getElementById('mp3Files').click()"><p id="mp3Text">Click to select videos</p></div>
-            <button class="btn btn-primary" id="btn-mp3" onclick="runMP3()">⚡ Convert to MP3</button>
-            <div class="status-box" id="stat-mp3">Ready.</div>
+      <div id="tab-mp3" class="tab-content">
+        <h3>Offline MP3 Converter</h3>
+        <div class="tab-subtitle">Upload Video Files to Convert to MP3</div>
+        <div class="controls" style="margin-top: 8px;">
+          <input type="file" id="mp3UploadFiles" multiple accept="video/*,audio/*" style="display:none;" onchange="handleMp3UploadSelect(event)">
+          <div class="action-btns" style="width: 100%;">
+              <button class="action btn-import" onclick="document.getElementById('mp3UploadFiles').click()">📁 Select Files</button>
+              <button class="action btn-download" onclick="uploadAndConvertMp3()">⚡ Convert Files</button>
           </div>
+          <div id="selectedFilesText" style="font-size:11px; color:var(--text-muted); margin-top:5px;">No files selected.</div>
         </div>
+        <div class="status-box"><div id="status4">Ready.</div></div>
+      </div>
 
-        <div id="tool-thumbnail" class="tool-view">
-          <div class="back-nav" onclick="goHome()">🔙 Back Home</div>
-          <div class="tool-container">
-            <h3>Thumbnail Grabber</h3>
-            <input type="text" id="tUrl" placeholder="YouTube Link...">
-            <button class="btn btn-primary" onclick="getT()">🖼️ Get HD Cover</button>
-            <div class="status-box" id="stat-t" style="display:none;"></div>
-          </div>
-        </div>
+      <div id="tab-thumbnail" class="tab-content">
+        <h3>Thumbnail Grabber</h3>
+        <div class="tab-subtitle">Download max-res YouTube covers instantly.</div>
+        <div class="controls"><input type="text" id="thumbUrl" placeholder="https://youtube.com/watch?..."></div>
+        <button class="action btn-download" onclick="getThumb()" style="width:100%;">🖼️ Fetch HD Thumbnail</button>
+        <div class="status-box" style="margin-top:20px; display:none;" id="thumbResult"></div>
+      </div>
 
-        <div id="tool-img-convert" class="tool-view">
-          <div class="back-nav" onclick="goHome()">🔙 Back Home</div>
-          <div class="tool-container">
-            <h3>Image Converter</h3>
-            <input type="file" id="imgFiles" multiple accept="image/*" style="display:none;" onchange="updateFileText('imgFiles','imgText')">
-            <div class="file-wrapper" onclick="document.getElementById('imgFiles').click()"><p id="imgText">Select Images</p></div>
-            <label>To Format</label>
-            <select id="imgFmt"><option value="PNG">PNG</option><option value="JPEG">JPG</option><option value="WEBP">WEBP</option></select>
-            <button class="btn btn-primary" id="btn-img" onclick="runImg()">🔄 Convert Now</button>
-            <div class="status-box" id="stat-img">Ready.</div>
+      <div id="tab-img-convert" class="tab-content">
+        <h3>Image Format Converter</h3>
+        <div class="tab-subtitle">Convert images to PNG, JPG, WEBP.</div>
+        <div class="controls">
+          <input type="file" id="imgUploads" multiple accept="image/*" style="display:none;" onchange="handleImgSelect(event)">
+          <div class="action-btns" style="width: 100%;">
+              <button class="action btn-import" onclick="document.getElementById('imgUploads').click()">📸 Select Images</button>
           </div>
+          <div id="imgFilesText" style="font-size:11px; color:var(--text-muted); margin-top:5px; margin-bottom:10px;">No images selected.</div>
+          <label style="font-size:12px; font-weight:bold;">Convert To:</label>
+          <select id="imgTargetFormat"><option value="PNG">PNG</option><option value="JPEG">JPG / JPEG</option><option value="WEBP">WEBP</option></select>
         </div>
+        <button class="action btn-download" onclick="convertImages()" style="width:100%;">🔄 Convert Now</button>
+        <div class="status-box"><div id="statusImg">Ready.</div></div>
+      </div>
 
-        <div id="tool-pdf" class="tool-view">
-          <div class="back-nav" onclick="goHome()">🔙 Back Home</div>
-          <div class="tool-container">
-            <h3>Image to PDF</h3>
-            <input type="file" id="pdfFiles" multiple accept="image/*" style="display:none;" onchange="updateFileText('pdfFiles','pdfText')">
-            <div class="file-wrapper" onclick="document.getElementById('pdfFiles').click()"><p id="pdfText">Select Images</p></div>
-            <button class="btn btn-primary" id="btn-pdf" onclick="runPDF()">📑 Create PDF</button>
-            <div class="status-box" id="stat-pdf">Ready.</div>
+      <div id="tab-pdf" class="tab-content">
+        <h3>Image to PDF</h3>
+        <div class="tab-subtitle">Combine multiple images into one PDF document.</div>
+        <div class="controls">
+          <input type="file" id="pdfUploads" multiple accept="image/*" style="display:none;" onchange="handlePdfSelect(event)">
+          <div class="action-btns" style="width: 100%;">
+              <button class="action btn-import" onclick="document.getElementById('pdfUploads').click()">📄 Select Images (Order matters)</button>
           </div>
+          <div id="pdfFilesText" style="font-size:11px; color:var(--text-muted); margin-top:5px; margin-bottom:10px;">No images selected.</div>
         </div>
+        <button class="action btn-download" onclick="imagesToPdf()" style="width:100%;">📑 Generate PDF</button>
+        <div class="status-box"><div id="statusPdf">Ready.</div></div>
+      </div>
+
+      <div id="tab-history" class="tab-content">
+        <h3>Recent Downloads</h3>
+        <div class="tab-subtitle">Your latest successful tasks</div>
+        <div id="historyList" style="max-height: 300px; overflow-y: auto;">
+            <div class="history-item">No history yet.</div>
+        </div>
+        <button class="action btn-clear" onclick="clearHistory()" style="margin-top:15px; width:100%;">🗑️ Clear History</button>
+      </div>
+
+      <div id="settingsModal" class="modal-overlay">
+          <div class="modal-content">
+              <h3>⚙️ Premium Settings</h3>
+              <div class="setting-item">
+                  <span><b>Dark Mode</b><br><span style="font-size:10px; color:var(--text-muted);">Toggle interface theme</span></span>
+                  <label class="switch"><input type="checkbox" id="themeToggle" onchange="applyThemeToggle()"><span class="slider"></span></label>
+              </div>
+              <div class="setting-item">
+                  <span><b>Auto-Clear Inputs</b><br><span style="font-size:10px; color:var(--text-muted);">Clear links/text after success</span></span>
+                  <label class="switch"><input type="checkbox" id="autoClearToggle" checked><span class="slider"></span></label>
+              </div>
+              <div class="action-btns" style="margin-top: 25px;">
+                  <button class="action btn-clear" onclick="closeModal('settingsModal')">Close</button>
+              </div>
+          </div>
+      </div>
+
+      <input type="file" id="fileInput" accept=".txt" style="display:none;" onchange="handleFileSelect(event)">
+
+      <div class="footer">
+        Mehar Pro Downloader | Support: +92 343 6873471
       </div>
 
       <script>
         let currentTaskId = "";
-        function showTool(id){ document.getElementById('view-dashboard').style.display='none'; document.getElementById(id).classList.add('active'); window.scrollTo(0,0); }
-        function goHome(){ document.querySelectorAll('.tool-view').forEach(v=>v.classList.remove('active')); document.getElementById('view-dashboard').style.display='grid'; }
-        function toggleTheme(){ let t = document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'; document.documentElement.setAttribute('data-theme', t); }
-        function toast(m){ let x=document.getElementById('toast'); x.innerText=m; x.classList.add('show'); setTimeout(()=>x.classList.remove('show'), 3000); }
-        function updateFileText(id, tid){ let f=document.getElementById(id).files; document.getElementById(tid).innerText = f.length + " files selected"; }
+        let results = [];
+        let progressInterval = null;
+        let activeTargetId = 'urls';
+
+        function openTab(evt, tabId) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            evt.currentTarget.classList.add('active');
+        }
+
+        function openModal(id) { document.getElementById(id).style.display = 'flex'; setTimeout(()=> { document.getElementById(id).style.opacity = '1'; }, 10); }
+        function closeModal(id) { document.getElementById(id).style.opacity = '0'; setTimeout(()=> document.getElementById(id).style.display = 'none', 300); }
+
+        function applyThemeToggle() {
+            const html = document.documentElement;
+            if(document.getElementById('themeToggle').checked) { html.setAttribute('data-theme', 'dark'); localStorage.setItem('mehar_theme', 'dark'); } 
+            else { html.setAttribute('data-theme', 'light'); localStorage.setItem('mehar_theme', 'light'); }
+        }
+        window.onload = () => {
+            let theme = localStorage.getItem('mehar_theme');
+            if(theme === 'dark') { document.documentElement.setAttribute('data-theme', 'dark'); document.getElementById('themeToggle').checked = true; }
+        }
+
+        function addHistory(task) {
+            let hist = JSON.parse(localStorage.getItem('mehar_hist') || '[]');
+            let date = new Date(); let min = date.getMinutes() < 10 ? '0'+date.getMinutes() : date.getMinutes();
+            hist.unshift(`[${date.getHours()}:${min}] ${task}`);
+            if(hist.length > 20) hist.pop();
+            localStorage.setItem('mehar_hist', JSON.stringify(hist)); renderHistory();
+        }
+        function renderHistory() {
+            let hist = JSON.parse(localStorage.getItem('mehar_hist') || '[]');
+            let div = document.getElementById('historyList');
+            if(hist.length === 0) { div.innerHTML = '<div class="history-item">No history yet.</div>'; return; }
+            div.innerHTML = hist.map(h => `<div class="history-item">${h}</div>`).join('');
+        }
+        function clearHistory() { localStorage.removeItem('mehar_hist'); renderHistory(); }
+        renderHistory();
+
+        function triggerFileImport(targetId) { activeTargetId = targetId; document.getElementById('fileInput').click(); }
+        function handleFileSelect(event) {
+            const file = event.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const area = document.getElementById(activeTargetId);
+                if(activeTargetId === 'urls') area.value = [...new Set(e.target.result.split('\\n').map(l => l.trim()).filter(Boolean))].join('\\n');
+                else area.value = e.target.result;
+            };
+            reader.readAsText(file); event.target.value = ''; 
+        }
+
+        async function stopDownload() { await fetch('/stop/'+currentTaskId); }
 
         async function poll(tid, sid, bid, stp){
             let inter = setInterval(async ()=>{
                 let r = await fetch('/progress/'+tid); let d = await r.json();
                 if(d.is_active){ document.getElementById(sid).innerText = d.status; document.getElementById(bid).style.display='none'; if(stp)document.getElementById(stp).style.display='block'; }
-                else { clearInterval(inter); document.getElementById(bid).style.display='block'; if(stp)document.getElementById(stp).style.display='none'; }
+                else { clearInterval(inter); document.getElementById(bid).style.display='inline-block'; if(stp)document.getElementById(stp).style.display='none'; }
             }, 1500);
         }
 
-        async function runTikTok(){
-            let urls = document.getElementById('urls').value.split('\\n').filter(Boolean); if(!urls.length) return;
-            currentTaskId = "tk_"+Date.now(); document.getElementById('stat-tiktok').innerText = "Initializing...";
-            let res = await fetch('/download', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({selectedUrls:urls, quality:document.getElementById('quality').value, saveMode:'zip', task_id:currentTaskId}) });
-            let d = await res.json();
-            if(d.status==='done') { document.getElementById('stat-tiktok').innerHTML = `✅ Complete! <br><a href="/files/${d.location}" class="download-link" download>📥 DOWNLOAD ZIP</a>`; toast("Success!"); }
-            else poll(currentTaskId, 'stat-tiktok', 'btn-tiktok', 'stop-tiktok');
+        async function scan() {
+          const rawUrls = document.getElementById('urls').value.split('\\n').map(s => s.trim()).filter(Boolean);
+          if(rawUrls.length === 0) return;
+          const uniqueUrls = [...new Set(rawUrls)]; document.getElementById('urls').value = uniqueUrls.join('\\n'); 
+          document.getElementById('status1').innerText = 'Scanning...';
+          const res = await fetch('/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ urls: uniqueUrls, count: 5000 }) });
+          const data = await res.json(); results = data.results || [];
+          const grid = document.getElementById('grid'); grid.innerHTML = '';
+          results.forEach((v, i) => { grid.innerHTML += `<div style="background:var(--input-bg); padding:10px; border-radius:8px; margin-bottom:5px;"><label style="color:var(--gold); font-weight:bold;"><input type="checkbox" checked id="c${i}"> Select</label><div style="font-size:11px; word-break:break-all; opacity:0.8; margin-top:5px;">${v.url}</div></div>`; });
+          document.getElementById('status1').innerText = `Scan complete. ${results.length} URLs ready.`;
+        }
+        function clearUrls() { document.getElementById('urls').value = ''; document.getElementById('grid').innerHTML = ''; results = []; }
+
+        async function download(mode) {
+          const selected = []; results.forEach((v, i) => { const el = document.getElementById('c'+i); if(el && el.checked) selected.push(v.url); });
+          if(selected.length === 0) return;
+          currentTaskId = "tk_"+Date.now(); document.getElementById('status1').innerText = 'Engine Started...';
+          poll(currentTaskId, 'prog1', 'downloadBtn', 'stopBtn1');
+          
+          try {
+            const res = await fetch('/download', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ selectedUrls: selected, quality: document.getElementById('quality').value, saveMode: 'zip', task_id: currentTaskId })
+            });
+            const data = await res.json();
+            if(data.status === "error") document.getElementById('status1').innerHTML = `❌ Error: ${data.error}`;
+            else { 
+                document.getElementById('status1').innerHTML = `✅ Complete! <br><a href="/files/${data.location}" class="download-link" download>📥 DOWNLOAD ZIP</a>`;
+                addHistory(`TikTok Batch: ${selected.length} items`);
+                if(document.getElementById('autoClearToggle').checked) clearUrls();
+            }
+          } catch(err) {}
         }
 
-        async function runYT(){
-            let txt = document.getElementById('ytDoc').value; if(!txt) return;
-            currentTaskId = "yt_"+Date.now();
-            let res = await fetch('/process-yt-document', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({document_text:txt, mode:'zip', quality:document.getElementById('ytQual').value, task_id:currentTaskId}) });
-            poll(currentTaskId, 'stat-yt', 'btn-yt', 'stop-yt');
-            let d = await res.json(); 
-            if(d.status==='done') document.getElementById('stat-yt').innerHTML = `✅ Done! <br><a href="/files/${d.location}" class="download-link" download>📥 DOWNLOAD SHORTS</a>`;
+        async function startUniversal() {
+            const url = document.getElementById('uniUrl').value.trim(); if(!url) return;
+            currentTaskId = "un_"+Date.now(); document.getElementById('status2').innerText = 'Starting Engine...';
+            poll(currentTaskId, 'prog2', 'uniBtn', 'stopBtn2');
+            try {
+                const res = await fetch('/universal-download', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url, formatType: document.getElementById('uniType').value, quality: document.getElementById('uniQuality').value, task_id: currentTaskId })
+                });
+                const data = await res.json();
+                if(data.status === "error") document.getElementById('status2').innerHTML = `❌ Error`;
+                else { 
+                    document.getElementById('status2').innerHTML = `✅ Complete! <br><a href="/files/${data.location}" class="download-link" download>📥 DOWNLOAD FILE</a>`;
+                    addHistory("Universal Extract");
+                    if(document.getElementById('autoClearToggle').checked) document.getElementById('uniUrl').value = '';
+                }
+            } catch(e) {}
         }
 
-        async function runUni(){
-            let u = document.getElementById('uniUrl').value; if(!u) return;
-            currentTaskId = "un_"+Date.now();
-            let res = await fetch('/universal-download', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url:u, formatType:document.getElementById('uniType').value, quality:'best', task_id:currentTaskId}) });
-            poll(currentTaskId, 'stat-uni', 'btn-uni', '');
-            let d = await res.json();
-            if(d.status==='done') document.getElementById('stat-uni').innerHTML = `✅ Ready! <br><a href="/files/${d.location}" class="download-link" download>📥 DOWNLOAD MEDIA</a>`;
+        async function startYtShorts() {
+            const docText = document.getElementById('ytDoc').value.trim(); if(!docText) return;
+            currentTaskId = "yt_"+Date.now(); document.getElementById('status3').innerText = 'Analyzing...';
+            poll(currentTaskId, 'prog3', 'ytBtn', 'stopBtn3');
+            try {
+                const res = await fetch('/process-yt-document', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ document_text: docText, mode: 'zip', quality: document.getElementById('ytQuality').value, task_id: currentTaskId })
+                });
+                const data = await res.json();
+                if(data.status === "error") document.getElementById('status3').innerHTML = `❌ Error: ${data.message}`;
+                else { 
+                    document.getElementById('status3').innerHTML = `✅ Extracted! <br><a href="/files/${data.location}" class="download-link" download>📥 DOWNLOAD ZIP</a>`;
+                    addHistory("YouTube AI Shorts");
+                    if(document.getElementById('autoClearToggle').checked) document.getElementById('ytDoc').value = '';
+                }
+            } catch(e) {}
         }
 
-        async function stopTask(){ await fetch('/stop/'+currentTaskId); }
-
-        function getT(){
-            let u = document.getElementById('tUrl').value;
-            let m = u.match(/(?:v=|\\/)([0-9A-Za-z_-]{11})/);
-            if(m){ let img = `https://img.youtube.com/vi/${m[1]}/maxresdefault.jpg`; document.getElementById('stat-t').style.display='block'; document.getElementById('stat-t').innerHTML=`<img src="${img}" style="width:100%; border-radius:10px;"><br><a href="${img}" target="_blank" class="download-link">📥 OPEN FULL HD</a>`; }
-        }
-        
-        async function runImg(){
-            let f = document.getElementById('imgFiles').files; if(!f.length) return;
-            let fd = new FormData(); for(let x of f) fd.append('files', x); fd.append('target_format', document.getElementById('imgFmt').value);
-            document.getElementById('stat-img').innerText = "Processing...";
-            let res = await fetch('/convert-image-format', {method:'POST', body:fd});
-            let d = await res.json(); document.getElementById('stat-img').innerHTML = `✅ Converted! <br><a href="/files/${d.location}" class="download-link" download>📥 DOWNLOAD ALL</a>`;
+        function getThumb() {
+            let url = document.getElementById('thumbUrl').value;
+            let match = url.match(/(?:youtu\.be\\/|youtube\.com\\/(?:[^\\/]+\\/.+\\/|(?:v|e(?:mbed)?)\\/|.*[?&]v=)|youtu\.be\\/)([^"&?\\/\\s]{11})/);
+            let resBox = document.getElementById('thumbResult');
+            if(match && match[1]) {
+                let imgUrl = `https://img.youtube.com/vi/${match[1]}/maxresdefault.jpg`;
+                resBox.style.display = 'block';
+                resBox.innerHTML = `✅ Found HD Cover:<br><br><img src="${imgUrl}" style="width:100%; border-radius:8px; margin-bottom:10px;"><a href="${imgUrl}" target="_blank" class="download-link">📥 OPEN FULL IMAGE</a>`;
+                addHistory("Thumbnail Fetched");
+            } else { alert("Please paste a valid YouTube link."); }
         }
 
-        async function runPDF(){
-            let f = document.getElementById('pdfFiles').files; if(!f.length) return;
-            let fd = new FormData(); for(let x of f) fd.append('files', x);
-            document.getElementById('stat-pdf').innerText = "Generating PDF...";
-            let res = await fetch('/images-to-pdf', {method:'POST', body:fd});
-            let d = await res.json(); document.getElementById('stat-pdf').innerHTML = `✅ PDF Ready! <br><a href="/files/${d.location}" class="download-link" download>📥 DOWNLOAD PDF</a>`;
+        function handleMp3UploadSelect(event) {
+            const files = event.target.files;
+            document.getElementById('selectedFilesText').innerText = files.length > 0 ? `${files.length} file(s) selected.` : 'No files selected.';
+        }
+        async function uploadAndConvertMp3() {
+            const fileInput = document.getElementById('mp3UploadFiles'); const statusBox = document.getElementById('status4');
+            if (!fileInput.files.length) return;
+            statusBox.innerHTML = "Uploading & Converting... ⏳";
+            const formData = new FormData(); for (const file of fileInput.files) formData.append('files', file);
+            try {
+                const res = await fetch('/convert-mp3-upload', { method: 'POST', body: formData });
+                const data = await res.json();
+                if(data.status === "error") statusBox.innerHTML = `❌ Error`;
+                else {
+                    statusBox.innerHTML = `✅ Complete! <br><a href="/files/${data.location}" class="download-link" download>📥 DOWNLOAD MP3 ZIP</a>`;
+                    addHistory("MP3 Files Converted");
+                }
+                fileInput.value = ''; document.getElementById('selectedFilesText').innerText = 'No files selected.';
+            } catch(e) {}
         }
 
-        async function runMP3(){
-            let f = document.getElementById('mp3Files').files; if(!f.length) return;
-            let fd = new FormData(); for(let x of f) fd.append('files', x);
-            document.getElementById('stat-mp3').innerText = "Converting... takes time for large files.";
-            let res = await fetch('/convert-mp3-upload', {method:'POST', body:fd});
-            let d = await res.json(); document.getElementById('stat-mp3').innerHTML = `✅ MP3 Ready! <br><a href="/files/${d.location}" class="download-link" download>📥 DOWNLOAD ZIP</a>`;
+        function handleImgSelect(event) {
+            const files = event.target.files;
+            document.getElementById('imgFilesText').innerText = files.length > 0 ? `${files.length} image(s) selected.` : 'No images selected.';
         }
+        async function convertImages() {
+            const fileInput = document.getElementById('imgUploads'); const statusBox = document.getElementById('statusImg');
+            if (!fileInput.files.length) return;
+            statusBox.innerHTML = "Converting Images... ⏳";
+            const formData = new FormData();
+            for (const file of fileInput.files) formData.append('files', file);
+            formData.append('target_format', document.getElementById('imgTargetFormat').value);
+            try {
+                const res = await fetch('/convert-image-format', { method: 'POST', body: formData });
+                const data = await res.json();
+                if(data.status==="error") statusBox.innerHTML = `❌ Error: ${data.message}`;
+                else {
+                    statusBox.innerHTML = `✅ Converted! <br><a href="/files/${data.location}" class="download-link" download>📥 DOWNLOAD IMAGES ZIP</a>`;
+                    addHistory("Image Format Converted");
+                }
+                fileInput.value = ''; document.getElementById('imgFilesText').innerText = 'No images selected.';
+            } catch(e) { statusBox.innerHTML = `❌ Error`; }
+        }
+
+        function handlePdfSelect(event) {
+            const files = event.target.files;
+            document.getElementById('pdfFilesText').innerText = files.length > 0 ? `${files.length} image(s) selected.` : 'No images selected.';
+        }
+        async function imagesToPdf() {
+            const fileInput = document.getElementById('pdfUploads'); const statusBox = document.getElementById('statusPdf');
+            if (!fileInput.files.length) return;
+            statusBox.innerHTML = "Generating PDF... ⏳";
+            const formData = new FormData();
+            for (const file of fileInput.files) formData.append('files', file);
+            try {
+                const res = await fetch('/images-to-pdf', { method: 'POST', body: formData });
+                const data = await res.json();
+                if(data.status==="error") statusBox.innerHTML = `❌ Error: ${data.message}`;
+                else {
+                    statusBox.innerHTML = `✅ PDF Generated! <br><a href="/files/${data.location}" class="download-link" download>📥 DOWNLOAD PDF</a>`;
+                    addHistory("Images merged to PDF");
+                }
+                fileInput.value = ''; document.getElementById('pdfFilesText').innerText = 'No images selected.';
+            } catch(e) { statusBox.innerHTML = `❌ Error`; }
+        }
+
       </script>
     </body>
     </html>
@@ -330,9 +640,7 @@ def download(req: DownloadRequest):
                 progress_state[tid]["completed"] += 1
                 progress_state[tid]["status"] = f"Downloading... ({progress_state[tid]['completed']}/{progress_state[tid]['total']})"
         
-        # Create ZIP for user to download
         shutil.make_archive(str(BASE_DIR / "temp" / folder_name), 'zip', str(folder_path))
-        
         progress_state[tid]["is_active"] = False
         return JSONResponse({"status": "done", "location": f"temp/{folder_name}.zip"})
     except Exception as e:
@@ -362,7 +670,6 @@ def universal_download(req: UniversalRequest):
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([req.url])
         shutil.make_archive(str(BASE_DIR / "temp" / folder_name), 'zip', str(folder_path))
-        
         progress_state[tid]["is_active"] = False
         return JSONResponse({"status": "done", "location": f"temp/{folder_name}.zip"})
     except Exception as e:
@@ -390,7 +697,6 @@ def process_yt_document(req: YTDocRequest):
     temp_p.mkdir(exist_ok=True)
     
     progress_state[tid] = {"is_active": True, "total": 100, "completed": 0, "status": "Parsing..."}
-
     main_clips_text = re.split(r'(?:\.|\-){20,}', text)
     final_clips_data = []
 
@@ -461,7 +767,7 @@ async def convert_mp3_upload(files: List[UploadFile] = File(...)):
             with open(temp_file, "wb") as buffer: shutil.copyfileobj(file.file, buffer)
             out_file = mp3_dir / f"{Path(file.filename).stem}_Audio.mp3"
             subprocess.run(['ffmpeg', '-y', '-i', str(temp_file), '-q:a', '0', '-map', 'a', str(out_file)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if temp_file.exists(): temp_file.unlink() # remove original video to save space in zip
+            if temp_file.exists(): temp_file.unlink()
             converted += 1
             
         shutil.make_archive(str(BASE_DIR / "temp" / folder_name), 'zip', str(mp3_dir))
@@ -511,3 +817,4 @@ async def images_to_pdf(files: List[UploadFile] = File(...)):
         return JSONResponse({"status": "done", "location": f"temp/{folder_name}/Document_MeharPro.pdf"})
     except Exception as e:
         return JSONResponse({"status": "error", "message": str(e)})
+
