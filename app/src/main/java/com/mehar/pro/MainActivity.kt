@@ -1,4 +1,4 @@
-package com.database.workspace
+package com.mehar.pro
 import android.os.Bundle
 import android.webkit.WebView
 import androidx.appcompat.app.AppCompatActivity
