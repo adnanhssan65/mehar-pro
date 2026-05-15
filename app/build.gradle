@@ -1,9 +1,9 @@
 plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android'; id 'com.chaquo.python' }
 android {
-    namespace 'com.mehar.workspace'
+    namespace 'com.database.workspace'
     compileSdk 34
     defaultConfig {
-        applicationId "com.mehar.workspace"
+        applicationId "com.database.workspace"
         minSdk 24
         targetSdk 34
         versionCode 1

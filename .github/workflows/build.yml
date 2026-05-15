@@ -1,4 +1,4 @@
-name: Build Mehar Pro APK
+name: Build Database Official APK
 on: [push, workflow_dispatch]
 jobs:
   build:
@@ -13,4 +13,4 @@ jobs:
       run: gradle assembleDebug
     - name: Upload APK
       uses: actions/upload-artifact@v4
-      with: { name: MeharPro-Workspace-APK, path: app/build/outputs/apk/debug/*.apk }
+      with: { name: Database-Official-APK, path: app/build/outputs/apk/debug/*.apk }
